@@ -1,0 +1,37 @@
+name: Daily YouTube Rank Bot
+
+on:
+  schedule:
+    # Runs every day at 02:00 UTC (~7:30 AM IST)
+    - cron: "0 2 * * *"
+  workflow_dispatch: # allows manual run from Actions tab
+    inputs: {}
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Write service account JSON
+        # This writes GOOGLE_SA_JSON secret into service_account.json
+        run: |
+          echo "$GOOGLE_SA_JSON" > service_account.json
+        env:
+          GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
+
+      - name: Run YouTube rank bot
+        env:
+          YT_API_KEY: ${{ secrets.YT_API_KEY }}
+        run: |
+          python yt_bot.py
