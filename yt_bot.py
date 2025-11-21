@@ -15,7 +15,7 @@ JSON_FILE = "service_account.json"              # we'll create this file at runt
 SHEET_NAME = "YT Final Bot"
 
 MAX_RESULTS_PER_PAGE = 50   # max results per search page (YouTube API limit)
-MAX_PAGES = 5               # hard cap: up to 5 pages (~250 results) per keyword
+MAX_PAGES = 2               # hard cap: up to 2 pages (~250 results) per keyword
 SLEEP_TIME = 2              # seconds between API calls & between keywords
 
 # Run ID used only for tab names (not a column)
@@ -217,6 +217,136 @@ def fetch_youtube_results_for_keyword(keyword):
 
             vtype, canonical_url = is_shorts_by_url(vid)
             links_text = extract_links(description)
+def extract_video_id(url):
+    """
+    Extracts the video ID from:
+    - https://www.youtube.com/watch?v=XXXXX
+    - https://youtu.be/XXXXX
+    - https://youtube.com/shorts/XXXXX
+    - works even if there's ?feature=share or other query params.
+    """
+    if not url:
+        return None
+
+    url = url.strip()
+
+    if "shorts/" in url:
+        return url.split("shorts/")[1].split("?")[0]
+
+    if "watch?v=" in url:
+        return url.split("watch?v=")[1].split("&")[0]
+
+    if "youtu.be/" in url:
+        return url.split("youtu.be/")[1].split("?")[0]
+
+    return None
+def get_wwakefit_video_ids(spreadsheet):
+    try:
+        sheet = spreadsheet.worksheet("Live Links")
+    except gspread.WorksheetNotFound:
+        print("⚠️ 'Live Links' sheet not found. Skipping Wakefit analysis.")
+        return set()
+
+    rows = sheet.get_all_values()
+    if len(rows) <= 1:
+        print("⚠️ 'Live Links' sheet has no data.")
+        return set()
+
+    header = rows[0]
+    col_index = {name: i for i, name in enumerate(header)}
+
+    ids = set()
+
+    for row in rows[1:]:
+        if not row:
+            continue
+
+        # YTD Live link (full videos)
+        if "YTD Live link" in col_index and len(row) > col_index["YTD Live link"]:
+            vid_id = extract_video_id(row[col_index["YTD Live link"]])
+            if vid_id:
+                ids.add(vid_id)
+
+        # YTS live link (shorts)
+        if "YTS live link" in col_index and len(row) > col_index["YTS live link"]:
+            vid_id = extract_video_id(row[col_index["YTS live link"]])
+            if vid_id:
+                ids.add(vid_id)
+
+    print(f"🔍 Loaded {len(ids)} Wakefit seeded video IDs from 'Live Links'.")
+    return ids
+def append_wakefit_daily_ranks(spreadsheet, shorts_sheet, videos_sheet, wakefit_ids):
+    """
+    Look at today's Shorts_YYYY-MM-DD and Videos_YYYY-MM-DD tabs,
+    find all rows whose video ID is in wakefit_ids, and append them
+    into 'Wakefit_Daily_Ranks' with Date, Type, Keyword, Rank, etc.
+    """
+    if not wakefit_ids:
+        print("ℹ️ No Wakefit IDs found, skipping Wakefit_Daily_Ranks update.")
+        return
+
+    date_str = RUN_ID  # same YYYY-MM-DD used in sheet names
+
+    # Ensure summary sheet exists
+    try:
+        ranks_sheet = spreadsheet.worksheet("Wakefit_Daily_Ranks")
+    except gspread.WorksheetNotFound:
+        ranks_sheet = spreadsheet.add_worksheet(title="Wakefit_Daily_Ranks", rows="5000", cols="10")
+        headers = ["Date", "Type", "Keyword", "Rank", "Title", "Channel", "Video URL"]
+        ranks_sheet.update(range_name="A1:G1", values=[headers])
+        print("🆕 Created 'Wakefit_Daily_Ranks' sheet with headers.")
+
+    def collect_matches(sheet, type_label):
+        values = sheet.get_all_values()
+        if len(values) <= 1:
+            return []
+
+        header = values[0]
+        col = {name: i for i, name in enumerate(header)}
+
+        required = ["Keyword", "Rank", "Title", "Channel", "Video URL"]
+        for r in required:
+            if r not in col:
+                print(f"⚠️ Column '{r}' not found in sheet '{sheet.title}', skipping it for Wakefit analysis.")
+                return []
+
+        matches = []
+        for row in values[1:]:
+            if not row:
+                continue
+
+            video_url = row[col["Video URL"]] if len(row) > col["Video URL"] else ""
+            vid_id = extract_video_id(video_url)
+            if not vid_id or vid_id not in wakefit_ids:
+                continue
+
+            keyword = row[col["Keyword"]] if len(row) > col["Keyword"] else ""
+            rank = row[col["Rank"]] if len(row) > col["Rank"] else ""
+            title = row[col["Title"]] if len(row) > col["Title"] else ""
+            channel = row[col["Channel"]] if len(row) > col["Channel"] else ""
+
+            matches.append([
+                date_str,
+                type_label,
+                keyword,
+                rank,
+                title,
+                channel,
+                video_url,
+            ])
+
+        return matches
+
+    shorts_matches = collect_matches(shorts_sheet, "Short")
+    videos_matches = collect_matches(videos_sheet, "Video")
+
+    all_matches = shorts_matches + videos_matches
+    if not all_matches:
+        print("ℹ️ No Wakefit videos found in today's ranking results.")
+        return
+
+    ranks_sheet.append_rows(all_matches, value_input_option="RAW")
+    print(f"✅ Appended {len(all_matches)} Wakefit ranking rows to 'Wakefit_Daily_Ranks'.")
 
             row_data = {
                 "Title": title,
@@ -414,3 +544,6 @@ def main():
 
 # Run it
 main()
+    # 🔁 After scraping, log Wakefit rankings
+    wakefit_ids = get_wwakefit_video_ids(spreadsheet)  # or get_wakefit_video_ids if you used that name
+    append_wakefit_daily_ranks(spreadsheet, shorts_sheet, videos_sheet, wakefit_ids)
