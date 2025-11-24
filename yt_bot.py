@@ -473,12 +473,12 @@ def main():
         successful_keywords.append(kw)
 
         # Shorts
+                # ---- Write Shorts for this keyword ----
         if shorts_rows:
-            start_row = shorts_current_row + 1
             values = [
                 [
-                    kw_index,
-                    kw,
+                    kw_index,               # Keyword_Sr_No
+                    kw,                     # Keyword
                     row["Rank"],
                     row["Title"],
                     row["Channel"],
@@ -491,17 +491,11 @@ def main():
                 for row in shorts_rows
             ]
             shorts_sheet.append_rows(values, value_input_option="RAW")
-            end_row = shorts_current_row + len(values)
-
-            if len(values) > 1:
-                shorts_sheet.merge_cells(start_row, 1, end_row, 1)
-                shorts_sheet.merge_cells(start_row, 2, end_row, 2)
-
-            shorts_current_row = end_row
+            shorts_current_row += len(values)
 
         # Videos
+        # ---- Write Videos for this keyword ----
         if video_rows:
-            start_row = videos_current_row + 1
             values = [
                 [
                     kw_index,
@@ -518,13 +512,7 @@ def main():
                 for row in video_rows
             ]
             videos_sheet.append_rows(values, value_input_option="RAW")
-            end_row = videos_current_row + len(values)
-
-            if len(values) > 1:
-                videos_sheet.merge_cells(start_row, 1, end_row, 1)
-                videos_sheet.merge_cells(start_row, 2, end_row, 2)
-
-            videos_current_row = end_row
+            videos_current_row += len(values)
 
         time.sleep(SLEEP_TIME)
 
