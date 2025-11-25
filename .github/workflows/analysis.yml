@@ -1,0 +1,29 @@
+name: YouTube Rank Analysis
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"   # runs daily 3AM UTC (after scraper)
+
+jobs:
+  analyse:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install gspread oauth2client
+
+      - name: Write service account key
+        run: echo "$GOOGLE_SA_JSON" > service_account.json
+        env:
+          GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
+
+      - name: Run analysis script
+        run: python sheets_analysis.py
