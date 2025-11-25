@@ -238,15 +238,18 @@ def fetch_youtube_results_for_keyword(keyword):
             vtype, canonical_url = is_shorts_by_url(vid)
             links_text = extract_links(description)
 
-            row_data = {
+                      row_data = {
                 "Title": title,
                 "Channel": channel,
                 "Views": views,
+                "Likes": stats.get("likeCount", "N/A"),
+                "Comments": stats.get("commentCount", "N/A"),
                 "Posted_Ago": posted_ago,
                 "Type": vtype,
                 "Video_URL": canonical_url,
                 "Description_Links": links_text,
             }
+
 
             if vtype == "Short":
                 if len(shorts_rows) < 10:
