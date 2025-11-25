@@ -323,7 +323,7 @@ def append_wakefit_daily_ranks(spreadsheet, shorts_sheet, videos_sheet, wakefit_
     """
     Look at today's Shorts_YYYY-MM-DD and Videos_YYYY-MM-DD tabs,
     find all rows whose video ID is in wakefit_ids, and append them
-    into 'Wakefit_Daily_Ranks'.
+    into 'Wakefit_Daily_Ranks' with full context + metrics.
     """
     if not wakefit_ids:
         print("ℹ️ No Wakefit IDs found, skipping Wakefit_Daily_Ranks update.")
@@ -331,15 +331,37 @@ def append_wakefit_daily_ranks(spreadsheet, shorts_sheet, videos_sheet, wakefit_
 
     date_str = RUN_ID
 
-    # Ensure summary sheet exists
+    expected_header = [
+        "Date",
+        "Type",
+        "Keyword",
+        "Rank",
+        "Title",
+        "Channel",
+        "Video URL",
+        "Views",
+        "Likes",
+        "Comments",
+    ]
+
+    # Ensure summary sheet exists and has expected header
     try:
         ranks_sheet = spreadsheet.worksheet("Wakefit_Daily_Ranks")
+        existing_vals = ranks_sheet.get_all_values()
+        if existing_vals:
+            current_header = existing_vals[0]
+        else:
+            current_header = []
     except gspread.WorksheetNotFound:
-        ranks_sheet = spreadsheet.add_worksheet(title="Wakefit_Daily_Ranks", rows="5000", cols="10")
-        headers = ["Date", "Type", "Keyword", "Rank", "Title", "Channel", "Video URL"]
-        ranks_sheet.update(range_name="A1:G1", values=[headers])
-        print("🆕 Created 'Wakefit_Daily_Ranks' sheet with headers.")
+        ranks_sheet = spreadsheet.add_worksheet(title="Wakefit_Daily_Ranks", rows="5000", cols="12")
+        current_header = []
 
+    if current_header != expected_header:
+        # overwrite header row only; existing data will just have blanks for new columns
+        ranks_sheet.update("A1:J1", [expected_header])
+        print("🆕 Set/updated header for 'Wakefit_Daily_Ranks'.")
+
+    # helper to read today's matches from a daily tab
     def collect_matches(sheet, type_label):
         values = sheet.get_all_values()
         if len(values) <= 1:
@@ -369,6 +391,10 @@ def append_wakefit_daily_ranks(spreadsheet, shorts_sheet, videos_sheet, wakefit_
             title = row[col["Title"]] if len(row) > col["Title"] else ""
             channel = row[col["Channel"]] if len(row) > col["Channel"] else ""
 
+            views = row[col["Views"]] if "Views" in col and len(row) > col["Views"] else ""
+            likes = row[col["Likes"]] if "Likes" in col and len(row) > col["Likes"] else ""
+            comments = row[col["Comments"]] if "Comments" in col and len(row) > col["Comments"] else ""
+
             matches.append([
                 date_str,
                 type_label,
@@ -377,6 +403,9 @@ def append_wakefit_daily_ranks(spreadsheet, shorts_sheet, videos_sheet, wakefit_
                 title,
                 channel,
                 video_url,
+                views,
+                likes,
+                comments,
             ])
 
         return matches
@@ -391,7 +420,6 @@ def append_wakefit_daily_ranks(spreadsheet, shorts_sheet, videos_sheet, wakefit_
 
     ranks_sheet.append_rows(all_matches, value_input_option="RAW")
     print(f"✅ Appended {len(all_matches)} Wakefit ranking rows to 'Wakefit_Daily_Ranks'.")
-
 
 # ---------- MAIN ----------
 def main():
@@ -448,14 +476,19 @@ def main():
         "Title",
         "Channel",
         "Views",
+        "Likes",
+        "Comments",
         "Posted_Ago",
         "Type",
         "Video URL",
         "Description_Links",
     ]
 
-    shorts_sheet.update(range_name="A1:J1", values=[headers])
-    videos_sheet.update(range_name="A1:J1", values=[headers])
+    ]
+
+       shorts_sheet.update(range_name="A1:L1", values=[headers])
+    videos_sheet.update(range_name="A1:L1", values=[headers])
+
     print("🪶 Headers written to both Shorts and Videos tabs.")
 
     shorts_current_row = 1
@@ -478,6 +511,7 @@ def main():
         # Shorts
                 # ---- Write Shorts for this keyword ----
         if shorts_rows:
+                  
             values = [
                 [
                     kw_index,               # Keyword_Sr_No
@@ -486,6 +520,8 @@ def main():
                     row["Title"],
                     row["Channel"],
                     row["Views"],
+                    row["Likes"],
+                    row["Comments"],
                     row["Posted_Ago"],
                     row["Type"],
                     row["Video_URL"],
@@ -494,11 +530,16 @@ def main():
                 for row in shorts_rows
             ]
             shorts_sheet.append_rows(values, value_input_option="RAW")
+
+                ]
+                for row in shorts_rows
+            ]
+            shorts_sheet.append_rows(values, value_input_option="RAW")
             shorts_current_row += len(values)
 
         # Videos
         # ---- Write Videos for this keyword ----
-        if video_rows:
+                if video_rows:
             values = [
                 [
                     kw_index,
@@ -515,6 +556,7 @@ def main():
                 for row in video_rows
             ]
             videos_sheet.append_rows(values, value_input_option="RAW")
+
             videos_current_row += len(values)
 
         time.sleep(SLEEP_TIME)
