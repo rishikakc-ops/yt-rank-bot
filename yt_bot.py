@@ -14,7 +14,7 @@ SHEET_NAME = "YT Final Bot"
 
 # Quota + fetch behaviour
 MAX_RESULTS_PER_PAGE = 50   # YouTube max per page
-MAX_PAGES = 2               # IMPORTANT: 2 page only (quota-safe)
+MAX_PAGES = 2               # at most 2 pages per keyword
 SLEEP_TIME = 2              # seconds between calls / keywords
 
 # Run ID used in sheet/tab names
@@ -39,12 +39,12 @@ def authenticate_google_sheets():
 
 
 # ---------- HELPERS ----------
-def time_ago(published_date):
+def time_ago(published_date: str) -> str:
     """Convert ISO datetime (e.g. 2025-10-16T12:34:56Z) into '2 days ago' style text."""
     try:
         published = datetime.strptime(published_date, "%Y-%m-%dT%H:%M:%SZ")
     except Exception:
-        return published_date  # fallback
+        return published_date  # fallback if format is odd
 
     now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     diff = relativedelta(now_utc, published)
@@ -61,7 +61,7 @@ def time_ago(published_date):
     return "Today"
 
 
-def is_shorts_by_url(video_id):
+def is_shorts_by_url(video_id: str):
     """
     Use requests.head on https://www.youtube.com/shorts/{video_id}.
     If the final URL contains '/shorts/', treat as Short.
@@ -81,13 +81,13 @@ def is_shorts_by_url(video_id):
     return "Video", f"https://www.youtube.com/watch?v={video_id}"
 
 
-def extract_links(description):
+def extract_links(description: str):
     """Extract all http/https links from description text."""
     raw_links = re.findall(r"(https?://[^\s]+)", description or "")
     return ", ".join(raw_links) if raw_links else "None"
 
 
-def extract_video_id(url):
+def extract_video_id(url: str | None):
     """
     Extracts the video ID from:
     - https://www.youtube.com/watch?v=XXXXX
@@ -113,10 +113,10 @@ def extract_video_id(url):
 
 
 # ---------- CORE: FETCH ONE KEYWORD ----------
-def fetch_youtube_results_for_keyword(keyword):
+def fetch_youtube_results_for_keyword(keyword: str):
     """
     For a single keyword:
-    - Fetch 1 page of search results from YouTube API (region IN)
+    - Fetch up to MAX_PAGES of search results from YouTube API (region IN)
     - For each video:
         - get snippet + stats
         - classify as Short/Video via URL
@@ -167,8 +167,7 @@ def fetch_youtube_results_for_keyword(keyword):
 
         items = search_response.get("items", [])
         if not items:
-            print(f"⚠️ No items returned for '{keyword}' at page {pages_checked}. Full response:")
-            print(search_response)
+            print(f"⚠️ No items returned for '{keyword}' at page {pages_checked}.")
             break
 
         video_ids = []
@@ -206,60 +205,57 @@ def fetch_youtube_results_for_keyword(keyword):
 
         video_items = video_response.get("items", [])
         if not video_items:
-            print(f"⚠️ No video details returned for '{keyword}' on page {pages_checked}. Full response:")
-            print(video_response)
+            print(f"⚠️ No video details returned for '{keyword}' on page {pages_checked}.")
             page_token = search_response.get("nextPageToken")
             if not page_token:
                 break
             time.sleep(SLEEP_TIME)
             continue
 
+        # Map id → details
         id_to_item = {item["id"]: item for item in video_items}
 
-            id_to_item = {item["id"]: item for item in video_items}
+        # Process in the same order as search results
+        for vid in video_ids:
+            if len(shorts_rows) >= 10 and len(video_rows) >= 10:
+                break
 
-            # Process in the same order as search results
-            for vid in video_ids:
-                if len(shorts_rows) >= 10 and len(video_rows) >= 10:
-                    break
+            details = id_to_item.get(vid)
+            if not details:
+                continue
 
-                details = id_to_item.get(vid)
-                if not details:
-                    continue
+            snip = details.get("snippet", {})
+            stats = details.get("statistics", {})
 
-                snip = details.get("snippet", {})
-                stats = details.get("statistics", {})
+            title = snip.get("title", "Untitled")
+            channel = snip.get("channelTitle", "Unknown Channel")
+            description = snip.get("description", "")
+            views = stats.get("viewCount", "N/A")
+            published_at = snip.get("publishedAt", "")
+            posted_ago = time_ago(published_at)
 
-                title = snip.get("title", "Untitled")
-                channel = snip.get("channelTitle", "Unknown Channel")
-                description = snip.get("description", "")
-                views = stats.get("viewCount", "N/A")
-                published_at = snip.get("publishedAt", "")
-                posted_ago = time_ago(published_at)
+            vtype, canonical_url = is_shorts_by_url(vid)
+            links_text = extract_links(description)
 
-                vtype, canonical_url = is_shorts_by_url(vid)
-                links_text = extract_links(description)
+            row_data = {
+                "Title": title,
+                "Channel": channel,
+                "Views": views,
+                "Likes": stats.get("likeCount", "N/A"),
+                "Comments": stats.get("commentCount", "N/A"),
+                "Posted_Ago": posted_ago,
+                "Type": vtype,
+                "Video_URL": canonical_url,
+                "Description_Links": links_text,
+            }
 
-                row_data = {
-                    "Title": title,
-                    "Channel": channel,
-                    "Views": views,
-                    "Likes": stats.get("likeCount", "N/A"),
-                    "Comments": stats.get("commentCount", "N/A"),
-                    "Posted_Ago": posted_ago,
-                    "Type": vtype,
-                    "Video_URL": canonical_url,
-                    "Description_Links": links_text,
-                }
+            if vtype == "Short":
+                if len(shorts_rows) < 10:
+                    shorts_rows.append(row_data)
+            else:
+                if len(video_rows) < 10:
+                    video_rows.append(row_data)
 
-                if vtype == "Short":
-                    if len(shorts_rows) < 10:
-                        shorts_rows.append(row_data)
-                else:
-                    if len(video_rows) < 10:
-                        video_rows.append(row_data)
-
-        # With MAX_PAGES = 1 we intentionally don't page much, but keep logic:
         page_token = search_response.get("nextPageToken")
         if not page_token:
             break
@@ -274,7 +270,7 @@ def fetch_youtube_results_for_keyword(keyword):
 
     print(
         f"✅ '{keyword}': {len(shorts_rows)} shorts, {len(video_rows)} videos "
-        f"(aimed for 10 each; limited by actual API results + URL rule)."
+        f"(aimed for 10 each; limited by API + URL rule)."
     )
     return shorts_rows, video_rows
 
@@ -358,7 +354,6 @@ def append_wakefit_daily_ranks(spreadsheet, shorts_sheet, videos_sheet, wakefit_
         current_header = []
 
     if current_header != expected_header:
-        # overwrite header row only; existing data will just have blanks for new columns
         ranks_sheet.update("A1:J1", [expected_header])
         print("🆕 Set/updated header for 'Wakefit_Daily_Ranks'.")
 
@@ -422,6 +417,7 @@ def append_wakefit_daily_ranks(spreadsheet, shorts_sheet, videos_sheet, wakefit_
     ranks_sheet.append_rows(all_matches, value_input_option="RAW")
     print(f"✅ Appended {len(all_matches)} Wakefit ranking rows to 'Wakefit_Daily_Ranks'.")
 
+
 # ---------- MAIN ----------
 def main():
     if not API_KEY:
@@ -456,14 +452,14 @@ def main():
         shorts_sheet = spreadsheet.worksheet(shorts_tab_name)
         print(f"📄 Using existing '{shorts_tab_name}' sheet (will clear & overwrite).")
     except gspread.WorksheetNotFound:
-        shorts_sheet = spreadsheet.add_worksheet(title=shorts_tab_name, rows="2000", cols="10")
+        shorts_sheet = spreadsheet.add_worksheet(title=shorts_tab_name, rows="2000", cols="12")
         print(f"🆕 Created '{shorts_tab_name}' sheet.")
 
     try:
         videos_sheet = spreadsheet.worksheet(videos_tab_name)
         print(f"📄 Using existing '{videos_tab_name}' sheet (will clear & overwrite).")
     except gspread.WorksheetNotFound:
-        videos_sheet = spreadsheet.add_worksheet(title=videos_tab_name, rows="2000", cols="10")
+        videos_sheet = spreadsheet.add_worksheet(title=videos_tab_name, rows="2000", cols="12")
         print(f"🆕 Created '{videos_tab_name}' sheet.")
 
     # Clear and write headers
@@ -485,15 +481,10 @@ def main():
         "Description_Links",
     ]
 
-    ]
-
-       shorts_sheet.update(range_name="A1:L1", values=[headers])
+    shorts_sheet.update(range_name="A1:L1", values=[headers])
     videos_sheet.update(range_name="A1:L1", values=[headers])
 
     print("🪶 Headers written to both Shorts and Videos tabs.")
-
-    shorts_current_row = 1
-    videos_current_row = 1
 
     successful_keywords = []
     failed_keywords = []
@@ -510,9 +501,7 @@ def main():
         successful_keywords.append(kw)
 
         # Shorts
-                # ---- Write Shorts for this keyword ----
         if shorts_rows:
-                  
             values = [
                 [
                     kw_index,               # Keyword_Sr_No
@@ -532,15 +521,8 @@ def main():
             ]
             shorts_sheet.append_rows(values, value_input_option="RAW")
 
-                ]
-                for row in shorts_rows
-            ]
-            shorts_sheet.append_rows(values, value_input_option="RAW")
-            shorts_current_row += len(values)
-
         # Videos
-        # ---- Write Videos for this keyword ----
-                if video_rows:
+        if video_rows:
             values = [
                 [
                     kw_index,
@@ -549,6 +531,8 @@ def main():
                     row["Title"],
                     row["Channel"],
                     row["Views"],
+                    row["Likes"],
+                    row["Comments"],
                     row["Posted_Ago"],
                     row["Type"],
                     row["Video_URL"],
@@ -557,8 +541,6 @@ def main():
                 for row in video_rows
             ]
             videos_sheet.append_rows(values, value_input_option="RAW")
-
-            videos_current_row += len(values)
 
         time.sleep(SLEEP_TIME)
 
