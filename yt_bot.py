@@ -216,47 +216,48 @@ def fetch_youtube_results_for_keyword(keyword):
 
         id_to_item = {item["id"]: item for item in video_items}
 
-        # Process in the same order as search results
-        for vid in video_ids:
-            if len(shorts_rows) >= 10 and len(video_rows) >= 10:
-                break
+            id_to_item = {item["id"]: item for item in video_items}
 
-            details = id_to_item.get(vid)
-            if not details:
-                continue
+            # Process in the same order as search results
+            for vid in video_ids:
+                if len(shorts_rows) >= 10 and len(video_rows) >= 10:
+                    break
 
-            snip = details.get("snippet", {})
-            stats = details.get("statistics", {})
+                details = id_to_item.get(vid)
+                if not details:
+                    continue
 
-            title = snip.get("title", "Untitled")
-            channel = snip.get("channelTitle", "Unknown Channel")
-            description = snip.get("description", "")
-            views = stats.get("viewCount", "N/A")
-            published_at = snip.get("publishedAt", "")
-            posted_ago = time_ago(published_at)
+                snip = details.get("snippet", {})
+                stats = details.get("statistics", {})
 
-            vtype, canonical_url = is_shorts_by_url(vid)
-            links_text = extract_links(description)
+                title = snip.get("title", "Untitled")
+                channel = snip.get("channelTitle", "Unknown Channel")
+                description = snip.get("description", "")
+                views = stats.get("viewCount", "N/A")
+                published_at = snip.get("publishedAt", "")
+                posted_ago = time_ago(published_at)
 
-                      row_data = {
-                "Title": title,
-                "Channel": channel,
-                "Views": views,
-                "Likes": stats.get("likeCount", "N/A"),
-                "Comments": stats.get("commentCount", "N/A"),
-                "Posted_Ago": posted_ago,
-                "Type": vtype,
-                "Video_URL": canonical_url,
-                "Description_Links": links_text,
-            }
+                vtype, canonical_url = is_shorts_by_url(vid)
+                links_text = extract_links(description)
 
+                row_data = {
+                    "Title": title,
+                    "Channel": channel,
+                    "Views": views,
+                    "Likes": stats.get("likeCount", "N/A"),
+                    "Comments": stats.get("commentCount", "N/A"),
+                    "Posted_Ago": posted_ago,
+                    "Type": vtype,
+                    "Video_URL": canonical_url,
+                    "Description_Links": links_text,
+                }
 
-            if vtype == "Short":
-                if len(shorts_rows) < 10:
-                    shorts_rows.append(row_data)
-            else:
-                if len(video_rows) < 10:
-                    video_rows.append(row_data)
+                if vtype == "Short":
+                    if len(shorts_rows) < 10:
+                        shorts_rows.append(row_data)
+                else:
+                    if len(video_rows) < 10:
+                        video_rows.append(row_data)
 
         # With MAX_PAGES = 1 we intentionally don't page much, but keep logic:
         page_token = search_response.get("nextPageToken")
